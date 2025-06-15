@@ -105,7 +105,7 @@ def _log_metrics(monitoring, logs, model, z, loss, optimizer):
 
 
 def train_sae(model, dataloader, criterion, optimizer, scheduler=None,
-              nb_epochs=20, clip_grad=1.0, monitoring=1, device="cpu"):
+              nb_epochs=20, clip_grad=1.0, monitoring=1, device="cpu", return_best=None):
     """
     Train a Sparse Autoencoder (SAE) model.
 
@@ -140,6 +140,11 @@ def train_sae(model, dataloader, criterion, optimizer, scheduler=None,
         Logs of training statistics.
     """
     logs = defaultdict(list)
+    model_logs = defaultdict(lambda: {
+                    'model': None,
+                    'dead_ratio': float('inf'),
+                    'avg_loss': float('inf')
+                })
 
     for epoch in range(nb_epochs):
         model.train()
@@ -198,6 +203,34 @@ def train_sae(model, dataloader, criterion, optimizer, scheduler=None,
                   f"R2: {avg_error:.4f}, L0: {avg_sparsity:.4f}, "
                   f"Dead Features: {dead_ratio*100:.1f}%, "
                   f"Time: {epoch_duration:.4f} seconds")
+
+            if dead_ratio < model_logs['best_dead']['dead_ratio']:
+
+                model_logs['best_dead'] = {
+                    'model': model.state_dict(),
+                    'dead_ratio': dead_ratio,
+                    'avg_loss': avg_loss
+                }
+
+            if avg_loss < model_logs['best_loss']['avg_loss']:
+            
+                model_logs['best_loss'] = {
+                    'model': model.state_dict(),
+                    'dead_ratio': dead_ratio,
+                    'avg_loss': avg_loss
+                }
+
+            if ((avg_loss <= model_logs['best_loss']['avg_loss']) and 
+                (dead_ratio <= model_logs['best_dead']['dead_ratio'])):
+
+                model_logs['best_both'] = {
+                    'model': model.state_dict(),
+                    'dead_ratio': dead_ratio,
+                    'avg_loss': avg_loss
+                }
+
+    if return_best:
+        return logs, model_logs
 
     return logs
 
