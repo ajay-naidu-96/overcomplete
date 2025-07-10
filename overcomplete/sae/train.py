@@ -10,6 +10,9 @@ from einops import rearrange
 
 from ..metrics import l2, r2_score, l0_eps
 from .trackers import DeadCodeTracker
+import os
+
+import copy
 
 
 def extract_input(batch):
@@ -105,7 +108,8 @@ def _log_metrics(monitoring, logs, model, z, loss, optimizer):
 
 
 def train_sae(model, dataloader, criterion, optimizer, scheduler=None,
-              nb_epochs=20, clip_grad=1.0, monitoring=1, device="cpu", return_best=None):
+              nb_epochs=20, clip_grad=1.0, monitoring=1, device="cpu", 
+              save_best=False, log_dir='./logs/'):
     """
     Train a Sparse Autoencoder (SAE) model.
 
@@ -141,7 +145,6 @@ def train_sae(model, dataloader, criterion, optimizer, scheduler=None,
     """
     logs = defaultdict(list)
     model_logs = defaultdict(lambda: {
-                    'model': None,
                     'dead_ratio': float('inf'),
                     'avg_loss': float('inf')
                 })
@@ -204,33 +207,40 @@ def train_sae(model, dataloader, criterion, optimizer, scheduler=None,
                   f"Dead Features: {dead_ratio*100:.1f}%, "
                   f"Time: {epoch_duration:.4f} seconds")
 
-            if dead_ratio < model_logs['best_dead']['dead_ratio']:
+            if save_best:
 
-                model_logs['best_dead'] = {
-                    'model': model.state_dict(),
-                    'dead_ratio': dead_ratio,
-                    'avg_loss': avg_loss
-                }
+                os.makedirs(log_dir, exist_ok=True)
 
-            if avg_loss < model_logs['best_loss']['avg_loss']:
-            
-                model_logs['best_loss'] = {
-                    'model': model.state_dict(),
-                    'dead_ratio': dead_ratio,
-                    'avg_loss': avg_loss
-                }
+                if dead_ratio < model_logs['best_dead']['dead_ratio'] and (epoch+1 > 10):
 
-            if ((avg_loss <= model_logs['best_loss']['avg_loss']) and 
-                (dead_ratio <= model_logs['best_dead']['dead_ratio'])):
+                    model_logs['best_dead'] = {
+                        'dead_ratio': dead_ratio,
+                        'avg_loss': avg_loss
+                    }
 
-                model_logs['best_both'] = {
-                    'model': model.state_dict(),
-                    'dead_ratio': dead_ratio,
-                    'avg_loss': avg_loss
-                }
+                    torch.save(model.cpu(), os.path.join(log_dir, f'best_dead{epoch}.pth'))
+                    model.to(device)
 
-    if return_best:
-        return logs, model_logs
+                if avg_loss < model_logs['best_loss']['avg_loss']:
+                
+                    model_logs['best_loss'] = {
+                        'dead_ratio': dead_ratio,
+                        'avg_loss': avg_loss
+                    }
+
+                    torch.save(model.cpu(), os.path.join(log_dir, f'best_loss.pth'))
+                    model.to(device)
+
+                if ((avg_loss <= model_logs['best_loss']['avg_loss']) and 
+                    (dead_ratio <= model_logs['best_dead']['dead_ratio'])):
+
+                    model_logs['best_both'] = {
+                        'dead_ratio': dead_ratio,
+                        'avg_loss': avg_loss
+                    }
+                    
+                    torch.save(model.cpu(), os.path.join(log_dir, f'best_both.pth'))
+                    model.to(device)
 
     return logs
 
